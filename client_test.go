@@ -106,7 +106,7 @@ func TestReadWrite(t *testing.T) {
 	block := []byte("the quick brown fox jumps over the lazy dog.")
 	score := Fingerprint(block)
 
-	s, err := client.WriteBlockContext(ctx, DataType, block)
+	s, err := client.WriteBlock(ctx, DataType, block)
 	if err != nil {
 		t.Fatalf("write block: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestReadWrite(t *testing.T) {
 	}
 
 	dst := make([]byte, 100)
-	n, err := client.ReadBlockContext(ctx, s, DataType, dst)
+	n, err := client.ReadBlock(ctx, s, DataType, dst)
 	if err != nil {
 		t.Fatalf("read block: %v", err)
 	}

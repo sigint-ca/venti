@@ -1,7 +1,7 @@
 package venti
 
 import (
-	"errors"
+	"context"
 	"io"
 	"sync"
 )
@@ -18,48 +18,46 @@ type BlockReader interface {
 	// ReadBlock reads the block with the given score and type into buf,
 	// whose length determines the maximum size of the block, and returns
 	// the number of bytes read.
-	ReadBlock(s Score, t BlockType, buf []byte) (int, error)
+	ReadBlock(ctx context.Context, s Score, t BlockType, buf []byte) (int, error)
 }
 
 type BlockWriter interface {
 	// WriteBlock writes the contents of buf as a block of the given
 	// type, returning the score.
-	WriteBlock(t BlockType, buf []byte) (Score, error)
+	WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score, error)
 }
 
 type FileReader struct {
+	ctx context.Context
+
 	br     BlockReader
 	e      *Entry
 	scores chan Score
 }
 
-func NewFileReader(br BlockReader) *FileReader {
+func NewFileReader(ctx context.Context, br BlockReader, e *Entry) *FileReader {
 	r := FileReader{
-		br: br,
+		ctx:    ctx,
+		br:     br,
+		e:      e,
+		scores: make(chan Score),
 	}
+	go r.readBlocks()
+
 	return &r
 }
 
-func (r *FileReader) Next(e *Entry) {
-	r.e = e
-	r.scores = make(chan Score)
-
-	go r.readBlocks()
-}
-
 func (r *FileReader) Read(p []byte) (int, error) {
-	if r.e == nil {
-		return 0, errors.New("entry not set")
+	select {
+	case s, ok := <-r.scores:
+		if !ok {
+			return 0, io.EOF
+		}
+		return r.br.ReadBlock(r.ctx, s, DataType, p)
+	case <-r.ctx.Done():
+		// TODO: cleanup
+		return 0, r.ctx.Err()
 	}
-
-	s, ok := <-r.scores
-	if !ok {
-		r.e = nil
-		r.scores = nil
-		return 0, io.EOF
-	}
-
-	return r.br.ReadBlock(s, DataType, p)
 }
 
 func (r *FileReader) readBlocks() {
@@ -102,7 +100,7 @@ func (r *FileReader) unpackPointerBlocks(in, out chan Score, depth int) error {
 	t := DataType + BlockType(depth)
 	buf := make([]byte, r.e.Psize)
 	for score := range in {
-		n, err := r.br.ReadBlock(score, t, buf)
+		n, err := r.br.ReadBlock(r.ctx, score, t, buf)
 		if err != nil {
 			return err
 		}
@@ -120,9 +118,9 @@ func unpackScore(buf []byte, i int) Score {
 	return s
 }
 
-// A FileWriter supports writing a venti "File", that is, a data
-// stream composed of a tree of venti pointer and data blocks.
 type FileWriter struct {
+	ctx context.Context
+
 	bw    BlockWriter
 	psize int
 	dsize int
@@ -133,7 +131,7 @@ type FileWriter struct {
 	wg       sync.WaitGroup
 }
 
-func NewFileWriter(bw BlockWriter, psize, dsize int) *FileWriter {
+func NewFileWriter(ctx context.Context, bw BlockWriter, psize, dsize int) *FileWriter {
 	if dsize <= 0 {
 		panic("bad dsize")
 	}
@@ -142,6 +140,7 @@ func NewFileWriter(bw BlockWriter, psize, dsize int) *FileWriter {
 	}
 
 	w := FileWriter{
+		ctx:   ctx,
 		bw:    bw,
 		psize: psize,
 		dsize: dsize,
@@ -163,7 +162,7 @@ func (w *FileWriter) Write(p []byte) (int, error) {
 		}
 		p = p[len(block):]
 		block = ZeroTruncate(DataType, block)
-		score, err := w.bw.WriteBlock(DataType, block)
+		score, err := w.bw.WriteBlock(w.ctx, DataType, block)
 		if err != nil {
 			panic("TODO")
 		}
@@ -203,7 +202,7 @@ func (w *FileWriter) batchPointers(depth int) {
 }
 
 func (w *FileWriter) writePointerBlock(block []byte, t BlockType, depth int) Score {
-	score, err := w.bw.WriteBlock(t, block)
+	score, err := w.bw.WriteBlock(w.ctx, t, block)
 	if err != nil {
 		panic("TODO")
 	}
@@ -218,8 +217,6 @@ func (w *FileWriter) writePointerBlock(block []byte, t BlockType, depth int) Sco
 	return score
 }
 
-// Flush finishes writing the venti data stream and returns
-// an Entry describing it.
 func (w *FileWriter) Flush() (*Entry, error) {
 	// TODO: check errors
 

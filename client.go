@@ -172,11 +172,7 @@ type readResponse struct {
 	Data []byte
 }
 
-func (c *Client) ReadBlock(s Score, t BlockType, buf []byte) (int, error) {
-	return c.ReadBlockContext(context.TODO(), s, t, buf)
-}
-
-func (c *Client) ReadBlockContext(ctx context.Context, s Score, t BlockType, buf []byte) (int, error) {
+func (c *Client) ReadBlock(ctx context.Context, s Score, t BlockType, buf []byte) (int, error) {
 	if len(buf) > math.MaxUint16 {
 		return 0, errors.New("oversized buffer")
 	}
@@ -206,11 +202,7 @@ type writeResponse struct {
 	Score Score
 }
 
-func (c *Client) WriteBlock(t BlockType, buf []byte) (Score, error) {
-	return c.WriteBlockContext(context.TODO(), t, buf)
-}
-
-func (c *Client) WriteBlockContext(ctx context.Context, t BlockType, buf []byte) (Score, error) {
+func (c *Client) WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score, error) {
 	if len(buf) > math.MaxUint16 {
 		return Score{}, errors.New("oversized buffer")
 	}

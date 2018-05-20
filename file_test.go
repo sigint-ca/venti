@@ -15,7 +15,7 @@ func TestFileWriter(t *testing.T) {
 		t.Fatalf("dial venti: %v", err)
 	}
 
-	w := NewFileWriter(client, 3*ScoreSize, 20)
+	w := NewFileWriter(ctx, client, 3*ScoreSize, 20)
 
 	type test struct {
 		block []byte
@@ -38,8 +38,7 @@ func TestFileWriter(t *testing.T) {
 		}
 		t.Logf("flush returned score=%v", e.Score)
 
-		r := NewFileReader(client)
-		r.Next(e)
+		r := NewFileReader(ctx, client, e)
 		buf, err := ioutil.ReadAll(r)
 		t.Logf("read file: %q", buf)
 		if !bytes.Equal(buf, test.block) {
