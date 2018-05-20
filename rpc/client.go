@@ -18,8 +18,8 @@ type Client struct {
 	pendingCond *sync.Cond
 	pending     map[uint8]*call
 
-	errLock sync.RWMutex
-	err     error
+	errmu sync.RWMutex
+	err   error
 }
 
 type call struct {
@@ -42,10 +42,7 @@ func NewClient(conn net.Conn) *Client {
 }
 
 func (c *Client) Call(ctx context.Context, funcId uint8, req, resp interface{}) error {
-	c.errLock.RLock()
-	err := c.err
-	c.errLock.RUnlock()
-	if err != nil {
+	if err := c.getErr(); err != nil {
 		return fmt.Errorf("rpc client closed due to error: %v", err)
 	}
 
@@ -99,16 +96,12 @@ func (c *Client) readResponses() {
 	for {
 		var length uint16
 		if err := binary.Read(c.conn, binary.BigEndian, &length); err != nil {
-			c.errLock.Lock()
-			c.err = err
-			c.errLock.Unlock()
+			c.setErr(err)
 			break
 		}
 		buf := responseBufPool.Get().([]byte)[0:length]
 		if _, err := io.ReadFull(c.conn, buf); err != nil {
-			c.errLock.Lock()
-			c.err = err
-			c.errLock.Unlock()
+			c.setErr(err)
 			break
 		}
 
@@ -142,4 +135,16 @@ func (c *Client) readResponses() {
 		}(buf)
 	}
 	c.conn.Close()
+}
+
+func (c *Client) setErr(err error) {
+	c.errmu.Lock()
+	defer c.errmu.Unlock()
+	c.err = err
+}
+
+func (c *Client) getErr() error {
+	c.errmu.RLock()
+	defer c.errmu.RUnlock()
+	return c.err
 }

@@ -95,6 +95,11 @@ func decode(dst interface{}, buf []byte) error {
 			}
 			length := r.Len()
 			n, _ := r.Read(v)
+
+			// kinda hacky: we communicate the read length back to
+			// the venti.Client using the slice length.
+			f.SetLen(n)
+
 			if length != n {
 				err = errors.New("short read")
 			}

@@ -12,20 +12,6 @@ import (
 
 var testAddr = fmt.Sprintf(":%d", VentiPort)
 
-func startTestServer() {
-	backend := MemBackend(make(map[Score][]byte))
-	srv, err := NewServer(backend)
-	if err != nil {
-		panic(err)
-	}
-	go func() {
-		if err := srv.Listen(testAddr); err != nil {
-			panic(err)
-		}
-	}()
-	time.Sleep(10 * time.Millisecond)
-}
-
 func TestBadRequestType(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -65,7 +51,7 @@ func TestReadUnknownScore(t *testing.T) {
 
 	req := readRequest{
 		Score: Fingerprint([]byte("does not exist in venti")),
-		Type:  DataType,
+		Type:  uint8(DataType),
 		Count: 6,
 	}
 	res := readResponse{
@@ -120,7 +106,7 @@ func TestReadWrite(t *testing.T) {
 	block := []byte("the quick brown fox jumps over the lazy dog.")
 	score := Fingerprint(block)
 
-	s, err := client.WriteBlock(ctx, DataType, block)
+	s, err := client.WriteBlockContext(ctx, DataType, block)
 	if err != nil {
 		t.Fatalf("write block: %v", err)
 	}
@@ -128,10 +114,15 @@ func TestReadWrite(t *testing.T) {
 		t.Errorf("scores do not match: got=%v, want=%v", s, score)
 	}
 
-	dst := make([]byte, len(block))
-	if err := client.ReadBlock(ctx, dst, DataType, s); err != nil {
+	dst := make([]byte, 100)
+	n, err := client.ReadBlockContext(ctx, s, DataType, dst)
+	if err != nil {
 		t.Fatalf("read block: %v", err)
 	}
+	if n != len(block) {
+		t.Fatalf("bad read length: want=%d, got=%d", len(block), n)
+	}
+	dst = dst[:n]
 	if !bytes.Equal(dst, block) {
 		t.Errorf("read block:\n\twant=%q,\n\t got=%q", block, dst)
 	}

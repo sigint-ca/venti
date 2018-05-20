@@ -66,7 +66,6 @@ func (s *Server) Listen(address string) error {
 }
 
 func (c *conn) close() error {
-	dprintf("server: closing connection")
 	return c.rwc.Close()
 }
 
@@ -77,7 +76,6 @@ func (c *conn) serve() error {
 	// }
 
 	// for {
-	// 	dprintf("server: ready to read a request")
 	// 	var length uint16
 	// 	if err := binary.Read(c.bufr, binary.BigEndian, &length); err == io.EOF {
 	// 		return nil
@@ -92,8 +90,6 @@ func (c *conn) serve() error {
 	// 	typ := reqBuf[0]
 	// 	tag := reqBuf[1]
 	// 	reqBuf = reqBuf[2:]
-
-	// 	dprintf("server: read a request tag=%d size=%d", tag, len(reqBuf))
 
 	// 	var resp message
 	// 	var err error
@@ -163,7 +159,6 @@ func (c *conn) serve() error {
 	// 	if err := c.bufw.Flush(); err != nil {
 	// 		return fmt.Errorf("flush response: %v", err)
 	// 	}
-	// 	dprintf("server: flushed response")
 	// }
 }
 

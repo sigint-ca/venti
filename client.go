@@ -5,12 +5,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"time"
 
 	"sigint.ca/venti2/rpc"
 )
+
+const (
+	rpcPing    = 2
+	rpcHello   = 4
+	rpcGoodbye = 6
+	rpcAuth0   = 8
+	rpcAuth1   = 10
+	rpcRead    = 12
+	rpcWrite   = 14
+	rpcSync    = 16
+)
+
+const VentiPort = 17034
+
+var supportedVersions = []string{
+	"02",
+}
 
 type Client struct {
 	// the underlying network connection
@@ -50,7 +68,6 @@ func Dial(ctx context.Context, address string) (*Client, error) {
 	if err := c.negotiateVersion(); err != nil {
 		return nil, fmt.Errorf("handshake: %v", err)
 	}
-	dprintf("client: choosing version %s", c.version)
 
 	c.rpc = rpc.NewClient(rwc)
 
@@ -98,6 +115,20 @@ func (c *Client) negotiateVersion() error {
 	return errors.New("failed to negotiate version")
 }
 
+type helloRequest struct {
+	Version  string
+	Uid      string
+	Strength uint8
+	Crypto   string "short"
+	Codec    string "short"
+}
+
+type helloResponse struct {
+	Sid     string
+	Rcrypto uint8
+	Rcodec  uint8
+}
+
 func (c *Client) hello(ctx context.Context) error {
 	req := helloRequest{
 		Version: c.version,
@@ -110,6 +141,10 @@ func (c *Client) hello(ctx context.Context) error {
 	c.sid = res.Sid
 
 	return nil
+}
+
+func (c *Client) goodbye(ctx context.Context) error {
+	panic("TODO")
 }
 
 func (c *Client) Ping(ctx context.Context) error {
@@ -126,26 +161,63 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) ReadBlock(ctx context.Context, dst []byte, blockType uint8, s Score) error {
-	req := readRequest{
-		Score: s,
-		Type:  blockType,
-		Count: uint16(len(dst)),
-	}
-	res := readResponse{
-		Data: dst,
-	}
-	if err := c.rpc.Call(ctx, rpcRead, req, &res); err != nil {
-		return fmt.Errorf("read: %v", err)
-	}
-
-	return nil
+type readRequest struct {
+	Score Score
+	Type  uint8
+	Pad   uint8
+	Count uint16
 }
 
-func (c *Client) WriteBlock(ctx context.Context, blockType uint8, data []byte) (Score, error) {
+type readResponse struct {
+	Data []byte
+}
+
+func (c *Client) ReadBlock(s Score, t BlockType, buf []byte) (int, error) {
+	return c.ReadBlockContext(context.TODO(), s, t, buf)
+}
+
+func (c *Client) ReadBlockContext(ctx context.Context, s Score, t BlockType, buf []byte) (int, error) {
+	if len(buf) > math.MaxUint16 {
+		return 0, errors.New("oversized buffer")
+	}
+
+	req := readRequest{
+		Score: s,
+		Type:  uint8(t),
+		Count: uint16(len(buf)),
+	}
+	res := readResponse{
+		Data: buf,
+	}
+	if err := c.rpc.Call(ctx, rpcRead, req, &res); err != nil {
+		return 0, fmt.Errorf("read: %v", err)
+	}
+
+	return len(res.Data), nil
+}
+
+type writeRequest struct {
+	Type uint8
+	Pad  [3]uint8
+	Data []byte
+}
+
+type writeResponse struct {
+	Score Score
+}
+
+func (c *Client) WriteBlock(t BlockType, buf []byte) (Score, error) {
+	return c.WriteBlockContext(context.TODO(), t, buf)
+}
+
+func (c *Client) WriteBlockContext(ctx context.Context, t BlockType, buf []byte) (Score, error) {
+	if len(buf) > math.MaxUint16 {
+		return Score{}, errors.New("oversized buffer")
+	}
+
 	req := writeRequest{
-		Data: data,
-		Type: blockType,
+		Data: buf,
+		Type: uint8(t),
 	}
 	var res writeResponse
 	if err := c.rpc.Call(ctx, rpcWrite, req, &res); err != nil {
@@ -164,6 +236,5 @@ func (c *Client) Sync(ctx context.Context) error {
 }
 
 func (c *Client) Close() error {
-	dprintf("client: closing connection")
 	return c.rwc.Close()
 }
