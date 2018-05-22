@@ -37,7 +37,7 @@ func writeString(w io.Writer, s string) error {
 	return err
 }
 
-func readShort(r io.Reader) (string, error) {
+func readShortString(r io.Reader) (string, error) {
 	// read buffer length
 	var n uint8
 	if err := binary.Read(r, binary.BigEndian, &n); err != nil {
@@ -56,7 +56,7 @@ func readShort(r io.Reader) (string, error) {
 	return string(buf), nil
 }
 
-func writeShort(w io.Writer, s string) error {
+func writeShortString(w io.Writer, s string) error {
 	// write string length
 	n := uint8(len(s))
 	if err := binary.Write(w, binary.BigEndian, n); err != nil {

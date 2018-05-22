@@ -26,7 +26,7 @@ func encode(msg interface{}, funcId, tag uint8) ([]byte, error) {
 			err = binary.Write(&buf, binary.BigEndian, v)
 		case string:
 			if structValue.Type().Field(i).Tag == "short" {
-				err = writeShort(&buf, v)
+				err = writeShortString(&buf, v)
 			} else {
 				err = writeString(&buf, v)
 			}
@@ -84,7 +84,7 @@ func decode(dst interface{}, buf []byte) error {
 		case string:
 			var s string
 			if structValue.Type().Field(i).Tag == "short" {
-				s, err = readShort(r)
+				s, err = readShortString(r)
 			} else {
 				s, err = readString(r)
 			}
