@@ -15,7 +15,7 @@ func TestFileWriter(t *testing.T) {
 		t.Fatalf("dial venti: %v", err)
 	}
 
-	w := NewFileWriter(ctx, client, 3*ScoreSize, 20)
+	w := NewFileWriter(ctx, client, DataType, 3*ScoreSize, 20)
 
 	type test struct {
 		block []byte
@@ -33,8 +33,8 @@ func TestFileWriter(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if e.Depth != test.depth {
-			t.Errorf("bad depth: got %d, want %d", e.Depth, test.depth)
+		if e.Depth() != test.depth {
+			t.Errorf("bad depth: got %d, want %d", e.Depth(), test.depth)
 		}
 		t.Logf("flush returned score=%v", e.Score)
 

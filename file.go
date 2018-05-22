@@ -37,23 +37,26 @@ type FileReader struct {
 
 func NewFileReader(ctx context.Context, br BlockReader, e *Entry) *FileReader {
 	r := FileReader{
-		ctx:    ctx,
-		br:     br,
-		e:      e,
-		scores: make(chan Score),
+		ctx: ctx,
+		br:  br,
+		e:   e,
 	}
-	go r.readBlocks()
 
 	return &r
 }
 
 func (r *FileReader) Read(p []byte) (int, error) {
+	if r.scores == nil {
+		r.scores = make(chan Score)
+		go r.readBlocks()
+	}
+
 	select {
 	case s, ok := <-r.scores:
 		if !ok {
 			return 0, io.EOF
 		}
-		return r.br.ReadBlock(r.ctx, s, DataType, p)
+		return r.br.ReadBlock(r.ctx, s, r.e.BaseType(), p)
 	case <-r.ctx.Done():
 		// TODO: cleanup
 		return 0, r.ctx.Err()
@@ -61,7 +64,8 @@ func (r *FileReader) Read(p []byte) (int, error) {
 }
 
 func (r *FileReader) readBlocks() {
-	if r.e.Depth > 0 {
+	depth := r.e.Depth()
+	if depth > 0 {
 		var in, out chan Score
 
 		in = make(chan Score)
@@ -70,17 +74,16 @@ func (r *FileReader) readBlocks() {
 			in <- r.e.Score
 			close(in)
 		}(in)
-		depth := r.e.Depth
-		for depth > 0 {
+		for i := 0; i < depth; i++ {
+			t := r.e.Type - BlockType(i)
 			out = make(chan Score)
-			go func(in, out chan Score, depth int) {
-				if err := r.unpackPointerBlocks(in, out, depth); err != nil {
+			go func(in, out chan Score, t BlockType) {
+				if err := r.unpackPointerBlocks(in, out, t); err != nil {
 					panic(err) // TODO
 				}
 				close(out)
-			}(in, out, depth)
+			}(in, out, t)
 			in = out
-			depth--
 		}
 		for score := range out {
 			r.scores <- score
@@ -96,8 +99,7 @@ func (r *FileReader) readBlocks() {
 	return
 }
 
-func (r *FileReader) unpackPointerBlocks(in, out chan Score, depth int) error {
-	t := DataType + BlockType(depth)
+func (r *FileReader) unpackPointerBlocks(in, out chan Score, t BlockType) error {
 	buf := make([]byte, r.e.Psize)
 	for score := range in {
 		n, err := r.br.ReadBlock(r.ctx, score, t, buf)
@@ -114,16 +116,17 @@ func (r *FileReader) unpackPointerBlocks(in, out chan Score, depth int) error {
 
 func unpackScore(buf []byte, i int) Score {
 	var s Score
-	copy(s[:], buf[i*ScoreSize:(i+1)*ScoreSize])
+	copy(s.Bytes(), buf[i*ScoreSize:(i+1)*ScoreSize])
 	return s
 }
 
 type FileWriter struct {
 	ctx context.Context
 
-	bw    BlockWriter
-	psize int
-	dsize int
+	bw       BlockWriter
+	psize    int
+	dsize    int
+	baseType BlockType
 
 	depth    int
 	size     int64
@@ -131,23 +134,28 @@ type FileWriter struct {
 	wg       sync.WaitGroup
 }
 
-func NewFileWriter(ctx context.Context, bw BlockWriter, psize, dsize int) *FileWriter {
+func NewFileWriter(ctx context.Context, bw BlockWriter, t BlockType, psize, dsize int) *FileWriter {
 	if dsize <= 0 {
 		panic("bad dsize")
 	}
 	if psize <= 40 {
 		panic("bad psize")
 	}
+	if t != DataType && t != DirType {
+		panic("bad type")
+	}
 
 	w := FileWriter{
-		ctx:   ctx,
-		bw:    bw,
-		psize: psize,
-		dsize: dsize,
+		ctx:      ctx,
+		bw:       bw,
+		psize:    psize,
+		dsize:    dsize,
+		baseType: t,
 	}
 	return &w
 }
 
+// TODO: document block size behaviour
 func (w *FileWriter) Write(p []byte) (int, error) {
 	if w.pointers == nil {
 		w.pointers = make([]chan Score, 10)
@@ -161,20 +169,9 @@ func (w *FileWriter) Write(p []byte) (int, error) {
 			block = block[:w.dsize]
 		}
 		p = p[len(block):]
-		block = ZeroTruncate(DataType, block)
-		score, err := w.bw.WriteBlock(w.ctx, DataType, block)
-		if err != nil {
-			panic("TODO")
-		}
+		block = ZeroTruncate(w.baseType, block)
 
-		if w.depth == 0 && len(w.pointers[0]) == 1 {
-			w.depth = 1
-			w.wg.Add(1)
-			w.pointers[1] = make(chan Score, w.depth)
-			go w.batchPointers(w.depth)
-		}
-
-		w.pointers[0] <- score
+		w.pointers[0] <- w.writeBlock(block, w.baseType, 0)
 	}
 
 	w.size += int64(len(p))
@@ -183,25 +180,25 @@ func (w *FileWriter) Write(p []byte) (int, error) {
 
 func (w *FileWriter) batchPointers(depth int) {
 	input, output := w.pointers[depth-1], w.pointers[depth]
-	t := DataType + BlockType(depth)
+	t := w.baseType + BlockType(depth)
 	block := make([]byte, 0, w.psize)
 	for score := range input {
-		block = append(block, score[:]...)
+		block = append(block, score.Bytes()...)
 		if len(block)+ScoreSize > w.psize {
-			output <- w.writePointerBlock(block, t, depth)
+			output <- w.writeBlock(block, t, depth)
 			block = block[:0]
 		}
 	}
 
 	if len(block) > 0 {
-		output <- w.writePointerBlock(block, t, depth)
+		output <- w.writeBlock(block, t, depth)
 	}
 
 	close(w.pointers[depth])
 	w.wg.Done()
 }
 
-func (w *FileWriter) writePointerBlock(block []byte, t BlockType, depth int) Score {
+func (w *FileWriter) writeBlock(block []byte, t BlockType, depth int) Score {
 	score, err := w.bw.WriteBlock(w.ctx, t, block)
 	if err != nil {
 		panic("TODO")
@@ -230,7 +227,7 @@ func (w *FileWriter) Flush() (*Entry, error) {
 	e := Entry{
 		Psize: w.psize,
 		Dsize: w.dsize,
-		Depth: w.depth,
+		Type:  w.baseType + BlockType(w.depth),
 		Size:  w.size,
 		Score: <-w.pointers[w.depth],
 	}

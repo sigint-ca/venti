@@ -1,6 +1,7 @@
 package venti
 
 import (
+	"bytes"
 	"fmt"
 )
 
@@ -19,7 +20,7 @@ func ZeroExtend(t BlockType, buf []byte, size, newsize int) error {
 		var i int
 		for i = start; i < end; i += ScoreSize {
 			s := ZeroScore()
-			copy(buf[i:], s[:])
+			copy(buf[i:], s.Bytes())
 		}
 		memset(buf[i:], 0)
 	} else {
@@ -40,8 +41,10 @@ func ZeroTruncate(t BlockType, buf []byte) []byte {
 	if isPointerType(t) {
 		// ignore slop at end of block
 		i := (len(buf) / ScoreSize) * ScoreSize
+		zero := ZeroScore()
+		zeroBytes := zero.Bytes()
 		for i >= ScoreSize {
-			if !ReadScore(buf[i-ScoreSize : i]).IsZero() {
+			if bytes.Equal(buf[i-ScoreSize:i], zeroBytes) {
 				break
 			}
 			i -= ScoreSize
