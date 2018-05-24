@@ -136,7 +136,7 @@ func UnpackEntry(p []byte) (*Entry, error) {
 
 func checkBlockSize(n int) error {
 	if n < 256 {
-		return fmt.Errorf("bad block size %x", n)
+		return fmt.Errorf("bad block size: %d", n)
 	}
 	return nil
 }

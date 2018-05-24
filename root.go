@@ -65,7 +65,7 @@ func UnpackRoot(p []byte) (*Root, error) {
 	var vers uint16
 	binary.Read(r, binary.BigEndian, &vers)
 	if vers&^rootVersionBig != rootVersion {
-		return nil, fmt.Errorf("unknown root version: %x", vers)
+		return nil, fmt.Errorf("unknown root version: %#x", vers)
 	}
 	buf := make([]byte, 128)
 	r.Read(buf)

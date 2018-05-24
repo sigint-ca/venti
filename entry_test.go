@@ -15,7 +15,9 @@ func TestPackEntry(t *testing.T) {
 	}
 
 	buf := make([]byte, EntrySize)
-	e.Pack(buf)
+	if err := e.Pack(buf); err != nil {
+		t.Fatal(err)
+	}
 
 	ee, err := UnpackEntry(buf)
 	if err != nil {
@@ -41,7 +43,9 @@ func BenchmarkPackEntry(b *testing.B) {
 
 	PackedEntrySink = make([]byte, EntrySize)
 	for i := 0; i < b.N; i++ {
-		e.Pack(PackedEntrySink)
+		if err := e.Pack(PackedEntrySink); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -58,7 +62,9 @@ func BenchmarkUnpackEntry(b *testing.B) {
 	}
 
 	buf := make([]byte, EntrySize)
-	e.Pack(buf)
+	if err := e.Pack(buf); err != nil {
+		b.Fatal(err)
+	}
 
 	var err error
 	for i := 0; i < b.N; i++ {
