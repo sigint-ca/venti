@@ -143,8 +143,18 @@ func (c *Client) hello(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) goodbye(ctx context.Context) error {
-	panic("TODO")
+func (c *Client) goodbye() {
+	var req, res struct{}
+
+	// Venti servers do not respond to goodbye calls, but terminate
+	// the connection immediately. Cancelling the request but not
+	// setting a deadline is a hack that allows rpc.Call to return
+	// immediately after sending the message.
+	// This is extremely fragile.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	c.rpc.Call(ctx, rpcGoodbye, req, &res)
 }
 
 func (c *Client) Ping(ctx context.Context) error {
@@ -228,5 +238,6 @@ func (c *Client) Sync(ctx context.Context) error {
 }
 
 func (c *Client) Close() error {
+	c.goodbye()
 	return c.rwc.Close()
 }

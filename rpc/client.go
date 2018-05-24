@@ -81,6 +81,10 @@ func (c *Client) Call(ctx context.Context, funcId uint8, req, resp interface{}) 
 		err = ctx.Err()
 	}
 
+	c.pendingCond.L.Lock()
+	delete(c.pending, tag)
+	c.pendingCond.L.Unlock()
+
 	return err
 }
 
@@ -119,7 +123,6 @@ func (c *Client) readResponses() {
 					continue
 				}
 			}
-			delete(c.pending, tag)
 			c.pendingCond.L.Unlock()
 
 			select {
