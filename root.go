@@ -28,6 +28,7 @@ func (r *Root) Pack(p []byte) error {
 		return errors.New("bad root size")
 	}
 	w := bytes.NewBuffer(p[:0])
+
 	vers := uint16(rootVersion)
 	bshort := uint16(r.BlockSize)
 	if r.BlockSize >= math.MaxUint16 {
@@ -52,16 +53,17 @@ func (r *Root) Pack(p []byte) error {
 	if w.Len() != RootSize {
 		panic(fmt.Sprintf("bad root size: %d", w.Len()))
 	}
+
 	return nil
 }
 
-// TODO: capture errors from reads
 func UnpackRoot(p []byte) (*Root, error) {
 	if len(p) != RootSize {
 		return nil, errors.New("bad root size")
 	}
 	var root Root
 	r := bytes.NewReader(p)
+
 	var vers uint16
 	binary.Read(r, binary.BigEndian, &vers)
 	if vers&^rootVersionBig != rootVersion {
@@ -81,11 +83,7 @@ func UnpackRoot(p []byte) (*Root, error) {
 	if end >= 0 {
 		root.Type = root.Type[:end]
 	}
-	score, err := ReadScore(r)
-	if err != nil {
-		return nil, err
-	}
-	root.Score = score
+	ReadScore(&root.Score, r)
 	var bshort uint16
 	binary.Read(r, binary.BigEndian, &bshort)
 	root.BlockSize = int(bshort)
@@ -95,11 +93,7 @@ func UnpackRoot(p []byte) (*Root, error) {
 	if err := checkBlockSize(root.BlockSize); err != nil {
 		return nil, err
 	}
-	score, err = ReadScore(r)
-	if err != nil {
-		return nil, err
-	}
-	root.Prev = score
+	ReadScore(&root.Prev, r)
 
 	if r.Len() > 0 {
 		panic(fmt.Sprintf("bytes remaining: %d", r.Len()))

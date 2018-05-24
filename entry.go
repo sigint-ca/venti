@@ -49,6 +49,7 @@ func (e *Entry) Pack(p []byte) error {
 		return errors.New("bad entry size")
 	}
 	w := bytes.NewBuffer(p[:0])
+
 	flags := e.Flags &^ (entryDir | entryDepthMask)
 	flags |= uint8(e.Depth()) << entryDepthShift
 	if e.Type-BlockType(e.Depth()) == DirType {
@@ -81,13 +82,13 @@ func (e *Entry) Pack(p []byte) error {
 	return nil
 }
 
-// TODO: wrap reads with a type that captures errors
 func UnpackEntry(p []byte) (*Entry, error) {
 	if len(p) != EntrySize {
 		return nil, errors.New("bad entry size")
 	}
 	var e Entry
 	r := bytes.NewReader(p)
+
 	var gen uint32
 	binary.Read(r, binary.BigEndian, &gen)
 	e.Gen = int(gen)
@@ -112,14 +113,11 @@ func UnpackEntry(p []byte) (*Entry, error) {
 	r.Seek(5, io.SeekCurrent) // skip
 	size, _ := readUint48(r)
 	e.Size = int64(size)
-	score, err := ReadScore(r)
-	if err != nil {
-		return nil, err
-	}
-	e.Score = score
+	ReadScore(&e.Score, r)
 	if e.Flags&entryActive == 0 {
 		return &e, nil
 	}
+
 	if err := checkBlockSize(e.Psize); err != nil {
 		return nil, err
 	}

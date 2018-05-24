@@ -18,16 +18,15 @@ func ZeroScore() Score {
 	}
 }
 
-func ReadScore(r io.Reader) (Score, error) {
-	var s Score
+func ReadScore(s *Score, r io.Reader) error {
 	n, err := r.Read(s[:])
 	if err != nil {
-		return Score{}, err
+		return err
 	}
 	if n != ScoreSize {
-		return Score{}, errors.New("short read")
+		return errors.New("short read")
 	}
-	return s, nil
+	return nil
 }
 
 func Fingerprint(data []byte) Score {
