@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 
 	venti "sigint.ca/venti2"
 	"sigint.ca/venti2/vac"
@@ -12,6 +13,8 @@ import (
 
 func main() {
 	ctx := context.Background()
+	ctx, cancel := withSignals(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	client, err := venti.Dial(ctx, ":17034")
 	if err != nil {
