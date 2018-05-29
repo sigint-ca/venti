@@ -1,21 +1,36 @@
 package vac
 
-import venti "sigint.ca/venti2"
+import (
+	"context"
+	"errors"
+
+	venti "sigint.ca/venti2"
+)
 
 type Reader struct {
 	br   venti.BlockReader
-	root venti.Score
+	root *File
 }
 
-func NewReader(br venti.BlockReader, root venti.Score) *Reader {
+func OpenVac(ctx context.Context, br venti.BlockReader, root *venti.Root) (*Reader, error) {
+	if root.Type != "vac" {
+		return nil, errors.New("root does not refer to a vac tree")
+	}
+
+	f, err := ReadRoot(ctx, br, root)
+	if err != nil {
+		return nil, err
+	}
+
 	r := Reader{
 		br:   br,
-		root: root,
+		root: f,
 	}
-	return &r
+
+	return &r, nil
 }
 
-func (r *Reader) Next() (*Header, error) {
+func (r *Reader) Next() (*DirEntry, error) {
 	return nil, nil
 }
 

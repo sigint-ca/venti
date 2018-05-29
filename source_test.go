@@ -3,11 +3,10 @@ package venti
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
 	"testing"
 )
 
-func TestFileWriter(t *testing.T) {
+func TestSourceIO(t *testing.T) {
 	ctx := context.Background()
 
 	client, err := Dial(ctx, testAddr)
@@ -15,10 +14,10 @@ func TestFileWriter(t *testing.T) {
 		t.Fatalf("dial venti: %v", err)
 	}
 
-	w := NewFileWriter(ctx, client, DataType, 3*ScoreSize, 20)
+	w := SourceWriter(ctx, client, DataType, 3*ScoreSize, 20)
 
 	type test struct {
-		block []byte
+		s     []byte
 		depth int
 	}
 	for _, test := range []test{
@@ -26,7 +25,7 @@ func TestFileWriter(t *testing.T) {
 		{[]byte("this is 2 blocks and 1 pointer"), 1},
 		{[]byte("this tree has five data blocks, two pointers of type DataType+1, and one DataType+2"), 2},
 	} {
-		if _, err := w.Write(test.block); err != nil {
+		if _, err := w.Write(test.s); err != nil {
 			t.Error(err)
 		}
 		e, err := w.Flush()
@@ -36,13 +35,19 @@ func TestFileWriter(t *testing.T) {
 		if e.Depth() != test.depth {
 			t.Errorf("bad depth: got %d, want %d", e.Depth(), test.depth)
 		}
-		t.Logf("flush returned score=%v", e.Score)
+		if e.Size != int64(len(test.s)) {
+			t.Errorf("bad size: got %d, want %d", e.Size, len(test.s))
+		}
+		t.Logf("flush returned entry with depth=%d", e.Depth())
 
-		r := NewFileReader(ctx, client, e)
-		buf, err := ioutil.ReadAll(r)
-		t.Logf("read file: %q", buf)
-		if !bytes.Equal(buf, test.block) {
-			t.Errorf("read: got %q, want %q", buf, test.block)
+		s, err := SourceReader(ctx, client, e).ReadSource()
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := s.Bytes()
+		t.Logf("read source: %q", buf)
+		if !bytes.Equal(buf, test.s) {
+			t.Errorf("read: got %q, want %q", buf, test.s)
 		}
 	}
 

@@ -189,7 +189,7 @@ func (c *Client) ReadBlock(ctx context.Context, s Score, t BlockType, buf []byte
 
 	req := readRequest{
 		Score: s,
-		Type:  uint8(t),
+		Type:  t.onDiskType(),
 		Count: uint16(len(buf)),
 	}
 	res := readResponse{
@@ -219,7 +219,7 @@ func (c *Client) WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score
 
 	req := writeRequest{
 		Data: buf,
-		Type: uint8(t),
+		Type: t.onDiskType(),
 	}
 	var res writeResponse
 	if err := c.rpc.Call(ctx, rpcWrite, req, &res); err != nil {

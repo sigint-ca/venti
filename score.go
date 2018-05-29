@@ -7,6 +7,8 @@ import (
 	"io"
 )
 
+// TODO: when should scores be pointers vs values?
+
 const ScoreSize = sha1.Size
 
 type Score [ScoreSize]byte
@@ -27,6 +29,33 @@ func ReadScore(s *Score, r io.Reader) error {
 		return errors.New("short read")
 	}
 	return nil
+}
+
+func ParseScore(s string) (Score, error) {
+	if len(s) != ScoreSize*2 {
+		return Score{}, fmt.Errorf("bad score size: %d", len(s))
+	}
+	var score Score
+	for i := 0; i < ScoreSize*2; i++ {
+		var c int
+		if s[i] >= '0' && s[i] <= '9' {
+			c = int(s[i]) - '0'
+		} else if s[i] >= 'a' && s[i] <= 'f' {
+			c = int(s[i]) - 'a' + 10
+		} else if s[i] >= 'A' && s[i] <= 'F' {
+			c = int(s[i]) - 'A' + 10
+		} else {
+			return Score{}, fmt.Errorf("invalid byte: %d", s[i])
+		}
+
+		if i&1 == 0 {
+			c <<= 4
+		}
+
+		score[i>>1] |= uint8(c)
+	}
+
+	return score, nil
 }
 
 func Fingerprint(data []byte) Score {

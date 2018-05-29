@@ -1,6 +1,7 @@
 package venti
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"sync"
@@ -13,6 +14,20 @@ const (
 	// Default size of venti pointer blocks
 	DefaultPointerSize = DefaultDataSize - (DefaultDataSize % ScoreSize)
 )
+
+type Source struct {
+	*bytes.Reader
+	buf   []byte
+	bsize int
+}
+
+func (s *Source) Bytes() []byte {
+	return s.buf
+}
+
+func (s *Source) BlockSize() int {
+	return s.bsize
+}
 
 type BlockReader interface {
 	// ReadBlock reads the block with the given score and type into buf,
@@ -27,57 +42,99 @@ type BlockWriter interface {
 	WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score, error)
 }
 
-type FileReader struct {
+type sourceReader struct {
 	ctx context.Context
 
-	br     BlockReader
-	e      *Entry
-	scores chan Score
+	br BlockReader
+	e  *Entry
+
+	scores chan *Score
+	buf    []byte
+	off    int
+	end    int
 }
 
-func NewFileReader(ctx context.Context, br BlockReader, e *Entry) *FileReader {
-	r := FileReader{
-		ctx: ctx,
-		br:  br,
-		e:   e,
+func SourceReader(ctx context.Context, br BlockReader, e *Entry) *sourceReader {
+	r := sourceReader{
+		ctx:    ctx,
+		br:     br,
+		e:      e,
+		scores: make(chan *Score),
+		buf:    make([]byte, e.Dsize),
 	}
+	go r.readBlocks()
 
 	return &r
 }
 
-func (r *FileReader) Read(p []byte) (int, error) {
-	if r.scores == nil {
-		r.scores = make(chan Score)
-		go r.readBlocks()
+func (r *sourceReader) ReadSource() (*Source, error) {
+	w := bytes.NewBuffer(make([]byte, 0, r.e.Size))
+	n, err := w.ReadFrom(r)
+	if err != nil {
+		return nil, err
 	}
 
+	// TODO: should we check this?
+	//if n != r.e.Size {
+	//	return nil, fmt.Errorf("short read: read %d, entry wants %d", n, r.e.Size)
+	//}
+	_ = n
+
+	buf := w.Bytes()
+	s := Source{
+		Reader: bytes.NewReader(buf),
+		buf:    buf,
+		bsize:  r.e.Dsize,
+	}
+	return &s, nil
+}
+
+func (r *sourceReader) Read(p []byte) (int, error) {
+	if r.off != r.end {
+		// bytes already buffered from last venti read
+		n := copy(p, r.buf[r.off:r.end])
+		r.off += n
+		return n, nil
+	}
+
+	// fetch block from venti
 	select {
 	case s, ok := <-r.scores:
 		if !ok {
 			return 0, io.EOF
 		}
-		return r.br.ReadBlock(r.ctx, s, r.e.BaseType(), p)
+		n, err := r.br.ReadBlock(r.ctx, *s, r.e.BaseType(), r.buf)
+		if err != nil {
+			return 0, err
+		}
+		r.off = 0
+		r.end = n
 	case <-r.ctx.Done():
 		// TODO: cleanup
 		return 0, r.ctx.Err()
 	}
+
+	// copy some or all of the block into p
+	n := copy(p, r.buf[r.off:r.end])
+	r.off += n
+	return n, nil
 }
 
-func (r *FileReader) readBlocks() {
+func (r *sourceReader) readBlocks() {
 	depth := r.e.Depth()
 	if depth > 0 {
-		var in, out chan Score
+		var in, out chan *Score
 
-		in = make(chan Score)
+		in = make(chan *Score)
 		// TODO: buffered channel instead of goroutine here?
-		go func(in chan Score) {
-			in <- r.e.Score
+		go func(in chan *Score) {
+			in <- &r.e.Score
 			close(in)
 		}(in)
 		for i := 0; i < depth; i++ {
 			t := r.e.Type - BlockType(i)
-			out = make(chan Score)
-			go func(in, out chan Score, t BlockType) {
+			out = make(chan *Score)
+			go func(in, out chan *Score, t BlockType) {
 				if err := r.unpackPointerBlocks(in, out, t); err != nil {
 					panic(err) // TODO
 				}
@@ -89,8 +146,8 @@ func (r *FileReader) readBlocks() {
 			r.scores <- score
 		}
 	} else {
-		// single-block file, just send it
-		r.scores <- r.e.Score
+		// single-block source, just send it
+		r.scores <- &r.e.Score
 	}
 
 	// signal EOF
@@ -99,16 +156,17 @@ func (r *FileReader) readBlocks() {
 	return
 }
 
-func (r *FileReader) unpackPointerBlocks(in, out chan Score, t BlockType) error {
+func (r *sourceReader) unpackPointerBlocks(in, out chan *Score, t BlockType) error {
 	buf := make([]byte, r.e.Psize)
 	for score := range in {
-		n, err := r.br.ReadBlock(r.ctx, score, t, buf)
+		n, err := r.br.ReadBlock(r.ctx, *score, t, buf)
 		if err != nil {
 			return err
 		}
 		nentries := n / ScoreSize
 		for i := 0; i < nentries; i++ {
-			out <- unpackScore(buf, i)
+			s := unpackScore(buf, i)
+			out <- &s
 		}
 	}
 	return nil
@@ -120,7 +178,7 @@ func unpackScore(buf []byte, i int) Score {
 	return s
 }
 
-type FileWriter struct {
+type sourceWriter struct {
 	ctx context.Context
 
 	bw       BlockWriter
@@ -130,11 +188,11 @@ type FileWriter struct {
 
 	depth    int
 	size     int64
-	pointers []chan Score
+	pointers []chan *Score
 	wg       sync.WaitGroup
 }
 
-func NewFileWriter(ctx context.Context, bw BlockWriter, t BlockType, psize, dsize int) *FileWriter {
+func SourceWriter(ctx context.Context, bw BlockWriter, t BlockType, psize, dsize int) *sourceWriter {
 	if dsize <= 0 {
 		panic("bad dsize")
 	}
@@ -145,60 +203,70 @@ func NewFileWriter(ctx context.Context, bw BlockWriter, t BlockType, psize, dsiz
 		panic("bad type")
 	}
 
-	w := FileWriter{
+	w := sourceWriter{
 		ctx:      ctx,
 		bw:       bw,
 		psize:    psize,
 		dsize:    dsize,
 		baseType: t,
 	}
+
 	return &w
 }
 
-// TODO: document block size behaviour
-func (w *FileWriter) Write(p []byte) (int, error) {
+// TODO: fix block size behaviour
+func (w *sourceWriter) Write(p []byte) (int, error) {
 	if w.pointers == nil {
-		w.pointers = make([]chan Score, 10)
-		w.pointers[0] = make(chan Score, 1)
+		// clean state; this is a new or flushed writer.
+		w.pointers = make([]chan *Score, 10)
+		w.pointers[0] = make(chan *Score, 1)
 	}
 
-	// write data blocks to venti
+	// write data blocks to venti and pass resulting scores
+	// to a pointer block writer goroutine.
+	o := p
 	for len(p) > 0 {
 		block := p
 		if len(block) > w.dsize {
 			block = block[:w.dsize]
 		}
 		p = p[len(block):]
+
+		// TODO: is this the right place to do this? it seems to mess up the
+		// nwritten return value and w.size.
 		block = ZeroTruncate(w.baseType, block)
 
-		w.pointers[0] <- w.writeBlock(block, w.baseType, 0)
+		s := w.writeBlock(block, w.baseType, 0)
+		w.pointers[0] <- &s
 	}
 
-	w.size += int64(len(p))
-	return len(p), nil
+	w.size += int64(len(o))
+	return len(o), nil
 }
 
-func (w *FileWriter) batchPointers(depth int) {
+func (w *sourceWriter) batchPointers(depth int) {
 	input, output := w.pointers[depth-1], w.pointers[depth]
 	t := w.baseType + BlockType(depth)
 	block := make([]byte, 0, w.psize)
 	for score := range input {
 		block = append(block, score.Bytes()...)
 		if len(block)+ScoreSize > w.psize {
-			output <- w.writeBlock(block, t, depth)
+			s := w.writeBlock(block, t, depth)
+			output <- &s
 			block = block[:0]
 		}
 	}
 
 	if len(block) > 0 {
-		output <- w.writeBlock(block, t, depth)
+		s := w.writeBlock(block, t, depth)
+		output <- &s
 	}
 
 	close(w.pointers[depth])
 	w.wg.Done()
 }
 
-func (w *FileWriter) writeBlock(block []byte, t BlockType, depth int) Score {
+func (w *sourceWriter) writeBlock(block []byte, t BlockType, depth int) Score {
 	score, err := w.bw.WriteBlock(w.ctx, t, block)
 	if err != nil {
 		panic("TODO")
@@ -207,14 +275,14 @@ func (w *FileWriter) writeBlock(block []byte, t BlockType, depth int) Score {
 	if w.depth == depth && len(w.pointers[depth]) == 1 {
 		w.depth++
 		w.wg.Add(1)
-		w.pointers[w.depth] = make(chan Score, 1)
+		w.pointers[w.depth] = make(chan *Score, 1)
 		go w.batchPointers(w.depth)
 	}
 
 	return score
 }
 
-func (w *FileWriter) Flush() (*Entry, error) {
+func (w *sourceWriter) Flush() (*Entry, error) {
 	// TODO: check errors
 
 	if w.pointers == nil {
@@ -229,11 +297,12 @@ func (w *FileWriter) Flush() (*Entry, error) {
 		Dsize: w.dsize,
 		Type:  w.baseType + BlockType(w.depth),
 		Size:  w.size,
-		Score: <-w.pointers[w.depth],
+		Score: *<-w.pointers[w.depth],
 	}
 
 	w.pointers = nil
 	w.depth = 0
+	w.size = 0
 
 	return &e, nil
 }

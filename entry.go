@@ -22,6 +22,7 @@ const (
 	entryNoArchive  uint8 = 1 << 7
 )
 
+// TODO: methods and private
 type Entry struct {
 	Gen   int
 	Psize int
@@ -130,6 +131,14 @@ func UnpackEntry(p []byte) (*Entry, error) {
 	}
 
 	return &e, nil
+}
+
+func ReadEntry(r io.Reader) (*Entry, error) {
+	buf := make([]byte, EntrySize)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+	return UnpackEntry(buf)
 }
 
 func checkBlockSize(n int) error {

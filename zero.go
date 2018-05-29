@@ -14,7 +14,7 @@ func ZeroExtend(t BlockType, buf []byte, size, newsize int) error {
 	}
 	buf = buf[:newsize]
 
-	if isPointerType(t) {
+	if t.depth() > 0 {
 		start := (size / ScoreSize) * ScoreSize
 		end := (newsize / ScoreSize) * ScoreSize
 		var i int
@@ -38,7 +38,7 @@ func memset(p []byte, c byte) {
 // ZeroTruncate returns a new slice of buf which excludes
 // trailing zeros or zero scores, according to the type.
 func ZeroTruncate(t BlockType, buf []byte) []byte {
-	if isPointerType(t) {
+	if t.depth() > 0 {
 		// ignore slop at end of block
 		i := (len(buf) / ScoreSize) * ScoreSize
 		zero := ZeroScore()
