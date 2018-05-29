@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"sigint.ca/venti2/rpc"
+	"sigint.ca/venti2/internal/rpc"
 )
 
 var testAddr = fmt.Sprintf(":%d", VentiPort)

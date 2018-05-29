@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"sigint.ca/venti2/rpc"
+	"sigint.ca/venti2/internal/rpc"
 )
 
 const (
