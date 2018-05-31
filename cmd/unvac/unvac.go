@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"flag"
 	"log"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	venti "sigint.ca/venti2"
@@ -12,6 +13,15 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.Lshortfile)
+	log.SetPrefix("unvac: ")
+
+	flag.Parse()
+	score, err := venti.ParseScore(flag.Arg(0))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ctx := context.Background()
 	ctx, cancel := withSignals(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -22,13 +32,10 @@ func main() {
 	}
 	defer client.Close()
 
-	score, err := venti.ParseScore("791a8f463e30c210f9a9150d20316152b41dcbc8")
-	if err != nil {
+	buf := make([]byte, venti.RootSize)
+	if _, err := client.ReadBlock(ctx, score, venti.RootType, buf); err != nil {
 		log.Fatal(err)
 	}
-
-	buf := make([]byte, venti.RootSize)
-	client.ReadBlock(ctx, score, venti.RootType, buf)
 
 	root, err := venti.UnpackRoot(buf)
 	if err != nil {
@@ -40,27 +47,45 @@ func main() {
 		log.Fatal(err)
 	}
 
-	scanner := vac.NewDirScanner(f)
-	for scanner.Scan() {
-		e := scanner.DirEntry()
-		if err := writeFile(ctx, client, f, e); err != nil {
-			log.Print(err)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Print(err)
+	if err := unvac(ctx, client, "", f); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func writeFile(ctx context.Context, br venti.BlockReader, dir *vac.File, e *vac.DirEntry) error {
-	f, err := dir.Walk(ctx, br, e)
+func unvac(ctx context.Context, br venti.BlockReader, dir string, f *vac.File) error {
+	scanner := vac.NewDirScanner(f)
+	for scanner.Scan() {
+		e := scanner.DirEntry()
+		ff, err := f.Walk(ctx, br, e)
+		if err != nil {
+			return err
+		}
+		if e.Mode&vac.ModeDir != 0 {
+			dir := filepath.Join(dir, e.Elem)
+			if err := os.Mkdir(dir, 0777); err != nil {
+				return err
+			}
+			if err := unvac(ctx, br, dir, ff); err != nil {
+				return err
+			}
+		} else if err := writeFile(ctx, br, dir, ff, e); err != nil {
+			return err
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeFile(ctx context.Context, br venti.BlockReader, dir string, f *vac.File, meta *vac.DirEntry) error {
+	dest, err := os.Create(filepath.Join(dir, meta.Elem))
 	if err != nil {
 		return err
 	}
-	dest, err := os.Create(fmt.Sprintf("%s", e.Elem))
-	if err != nil {
-		return err
-	}
+	// TODO: set file metadata
+
 	defer dest.Close()
 	if _, err := f.Reader().WriteTo(dest); err != nil {
 		return err

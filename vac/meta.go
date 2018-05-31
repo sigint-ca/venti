@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -64,14 +63,14 @@ type DirEntry struct {
 	Size   int64  // size of file
 	Qid    uint64 // unique file serial number
 
-	Uid    string      // owner
-	Gid    string      // group
-	Mid    string      // last modified by
-	Mtime  time.Time   // last modification time
-	Mcount int         // number of modifications: can wrap!
-	Ctime  time.Time   // creation time
-	Atime  time.Time   // last access time
-	Mode   os.FileMode // mode bits TODO: is this really appropriate?
+	Uid    string    // owner
+	Gid    string    // group
+	Mid    string    // last modified by
+	Mtime  time.Time // last modification time
+	Mcount int       // number of modifications: can wrap!
+	Ctime  time.Time // creation time
+	Atime  time.Time // last access time
+	Mode   uint32    // mode bits
 
 	// plan 9
 	plan9     bool
@@ -349,7 +348,7 @@ func (me *MetaEntry) unpackDirEntry() (*DirEntry, error) {
 	dir.Mcount = int(readUint32(r))
 	dir.Ctime = time.Unix(int64(readUint32(r)), 0)
 	dir.Atime = time.Unix(int64(readUint32(r)), 0)
-	dir.Mode = os.FileMode(readUint32(r))
+	dir.Mode = readUint32(r)
 
 	// optional meta data
 	for r.Len() > 0 {

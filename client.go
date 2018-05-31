@@ -183,6 +183,9 @@ type readResponse struct {
 }
 
 func (c *Client) ReadBlock(ctx context.Context, s Score, t BlockType, buf []byte) (int, error) {
+	if s == ZeroScore() {
+		return 0, nil
+	}
 	if len(buf) > math.MaxUint16 {
 		return 0, errors.New("oversized buffer")
 	}
@@ -213,6 +216,9 @@ type writeResponse struct {
 }
 
 func (c *Client) WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score, error) {
+	if len(buf) == 0 {
+		return ZeroScore(), nil
+	}
 	if len(buf) > math.MaxUint16 {
 		return Score{}, errors.New("oversized buffer")
 	}
