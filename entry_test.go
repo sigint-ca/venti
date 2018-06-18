@@ -10,7 +10,7 @@ func TestPackEntry(t *testing.T) {
 		Psize: 8192,
 		Dsize: 8192,
 		Type:  DataType,
-		Flags: entryLocal,
+		Flags: EntryLocal,
 		Score: ZeroScore(),
 	}
 
@@ -24,8 +24,8 @@ func TestPackEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if *ee != e {
-		t.Fatalf("results differ: \n%v\n\tvs\n%v", e, *ee)
+	if ee != e {
+		t.Fatalf("results differ: \n%v\n\tvs\n%v", e, ee)
 	}
 }
 
@@ -37,7 +37,7 @@ func BenchmarkPackEntry(b *testing.B) {
 		Psize: 8192,
 		Dsize: 8192,
 		Type:  DataType,
-		Flags: entryLocal,
+		Flags: EntryLocal,
 		Score: ZeroScore(),
 	}
 
@@ -49,7 +49,7 @@ func BenchmarkPackEntry(b *testing.B) {
 	}
 }
 
-var UnpackedEntrySink *Entry
+var UnpackedEntrySink Entry
 
 func BenchmarkUnpackEntry(b *testing.B) {
 	e := Entry{
@@ -57,7 +57,7 @@ func BenchmarkUnpackEntry(b *testing.B) {
 		Psize: 8192,
 		Dsize: 8192,
 		Type:  DataType,
-		Flags: entryLocal,
+		Flags: EntryLocal,
 		Score: ZeroScore(),
 	}
 

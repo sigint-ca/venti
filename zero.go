@@ -29,12 +29,6 @@ func ZeroExtend(t BlockType, buf []byte, size, newsize int) error {
 	return nil
 }
 
-func memset(p []byte, c byte) {
-	for i := 0; i < len(p); i++ {
-		p[i] = c
-	}
-}
-
 // ZeroTruncate returns a new slice of buf which excludes
 // trailing zeros or zero scores, according to the type.
 func ZeroTruncate(t BlockType, buf []byte) []byte {

@@ -53,3 +53,9 @@ func writeUint48(w io.Writer, v uint64) error {
 	}
 	return binary.Write(w, binary.BigEndian, uint32(v))
 }
+
+func memset(p []byte, c byte) {
+	for i := 0; i < len(p); i++ {
+		p[i] = c
+	}
+}

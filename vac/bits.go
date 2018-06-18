@@ -36,6 +36,30 @@ func readUint64(r io.Reader) uint64 {
 	return n
 }
 
+func putUint16(p []byte, n uint16) {
+	binary.BigEndian.PutUint16(p, n)
+}
+
+func putUint32(p []byte, n uint32) {
+	binary.BigEndian.PutUint32(p, n)
+}
+
+func putUint64(p []byte, n uint64) {
+	binary.BigEndian.PutUint64(p, n)
+}
+
+func writeUint16(w io.Writer, n uint16) {
+	binary.Write(w, binary.BigEndian, &n)
+}
+
+func writeUint32(w io.Writer, n uint32) {
+	binary.Write(w, binary.BigEndian, &n)
+}
+
+func writeUint64(w io.Writer, n uint64) {
+	binary.Write(w, binary.BigEndian, &n)
+}
+
 func readString(r io.Reader) (string, error) {
 	// read string length
 	var n uint16
@@ -65,4 +89,10 @@ func writeString(w io.Writer, s string) error {
 	// write string
 	_, err := w.Write([]byte(s))
 	return err
+}
+
+func memset(p []byte, c byte) {
+	for i := 0; i < len(p); i++ {
+		p[i] = c
+	}
 }

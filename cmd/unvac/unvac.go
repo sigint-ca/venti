@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 )
 
 func main() {
-	log.SetFlags(log.Lshortfile)
+	log.SetFlags(0)
 	log.SetPrefix("unvac: ")
 
 	flag.Parse()
@@ -47,25 +48,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := unvac(ctx, client, "", f); err != nil {
+	if err := unvacDir(ctx, client, "", f); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func unvac(ctx context.Context, br venti.BlockReader, dir string, f *vac.File) error {
-	scanner := vac.NewDirScanner(f)
+func unvacDir(ctx context.Context, br venti.BlockReader, dir string, f *vac.File) error {
+	scanner := vac.NewDirScanner(ctx, br, f)
 	for scanner.Scan() {
 		e := scanner.DirEntry()
 		ff, err := f.Walk(ctx, br, e)
 		if err != nil {
-			return err
+			return fmt.Errorf("walk: %v", err)
 		}
 		if e.Mode&vac.ModeDir != 0 {
 			dir := filepath.Join(dir, e.Elem)
 			if err := os.Mkdir(dir, 0777); err != nil {
 				return err
 			}
-			if err := unvac(ctx, br, dir, ff); err != nil {
+			if err := unvacDir(ctx, br, dir, ff); err != nil {
 				return err
 			}
 		} else if err := writeFile(ctx, br, dir, ff, e); err != nil {
@@ -73,7 +74,7 @@ func unvac(ctx context.Context, br venti.BlockReader, dir string, f *vac.File) e
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return fmt.Errorf("scan: %v", err)
 	}
 
 	return nil
@@ -87,7 +88,7 @@ func writeFile(ctx context.Context, br venti.BlockReader, dir string, f *vac.Fil
 	// TODO: set file metadata
 
 	defer dest.Close()
-	if _, err := f.Reader().WriteTo(dest); err != nil {
+	if _, err := f.Reader(ctx, br).WriteTo(dest); err != nil {
 		return err
 	}
 	return nil

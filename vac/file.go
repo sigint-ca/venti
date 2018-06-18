@@ -9,79 +9,38 @@ package vac
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"io"
 
 	venti "sigint.ca/venti2"
 )
 
 type File struct {
-	meta    *DirEntry     // metadata for this file
-	source  *venti.Source // actual data
-	msource *venti.Source // metadata for children in a directory
+	meta *DirEntry // metadata for this file
+
+	// TODO: rename these
+	source  venti.Entry // actual data
+	msource venti.Entry // metadata for children in a directory
 }
 
-func ReadRoot(ctx context.Context, br venti.BlockReader, root *venti.Root) (*File, error) {
-	buf := make([]byte, 3*venti.EntrySize)
-	n, err := br.ReadBlock(ctx, root.Score, venti.DirType, buf)
-	if err != nil {
-		return nil, fmt.Errorf("read root venti directory: %v", err)
+func NewFile(ctx context.Context, bw venti.BlockWriter, r io.Reader, meta *DirEntry, bsize int) (*File, error) {
+	psize := (bsize / venti.ScoreSize) * venti.ScoreSize
+	sw := venti.NewWriter(ctx, bw, venti.DataType, psize, bsize)
+	if _, err := sw.ReadFrom(r); err != nil {
+		return nil, err
 	}
-	if n != 3*venti.EntrySize {
-		return nil, errors.New("bad root venti directory size")
-	}
-
-	r := bytes.NewReader(buf)
-	e1, err := venti.ReadEntry(r)
+	e, err := sw.Flush()
 	if err != nil {
 		return nil, err
 	}
-	e2, err := venti.ReadEntry(r)
-	if err != nil {
-		return nil, err
-	}
-	e3, err := venti.ReadEntry(r)
-	if err != nil {
-		return nil, err
-	}
-
-	// root dir and meta sources
-	source, err := venti.SourceReader(ctx, br, e1).ReadSource()
-	if err != nil {
-		return nil, fmt.Errorf("read root source: %v", err)
-	}
-	msource, err := venti.SourceReader(ctx, br, e2).ReadSource()
-	if err != nil {
-		return nil, fmt.Errorf("read root meta source: %v", err)
-	}
-
-	// metadata of root source
-	rmeta, err := venti.SourceReader(ctx, br, e3).ReadSource()
-	if err != nil {
-		return nil, fmt.Errorf("read root meta block: %v", err)
-	}
-
-	mb, err := ReadMetaBlock(rmeta)
-	if err != nil {
-		return nil, fmt.Errorf("unpack root meta block: %v", err)
-	}
-	me, err := mb.unpackMetaEntry(0)
-	if err != nil {
-		return nil, fmt.Errorf("unpack root meta entry: %v", err)
-	}
-	meta, err := me.unpackDirEntry()
-	if err != nil {
-		return nil, fmt.Errorf("unpack root meta data")
-	}
-
 	f := File{
-		meta:    meta,
-		source:  source,
-		msource: msource,
+		meta:   meta,
+		source: e,
 	}
-
 	return &f, nil
+}
+
+func (f *File) Name() string {
+	return f.meta.Elem
 }
 
 // TODO: document f.source offset after the operation
@@ -90,60 +49,64 @@ func (f *File) Walk(ctx context.Context, br venti.BlockReader, de *DirEntry) (*F
 		return nil, errNotDir
 	}
 
-	off := int64(de.Entry) * venti.EntrySize
-	if _, err := f.source.Seek(off, io.SeekStart); err != nil {
-		return nil, err
-	}
-	e, err := venti.ReadEntry(f.source)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: seek without reading the whole source into memory
+	var buf bytes.Buffer
+	_, err := venti.NewReader(ctx, br, f.source).WriteTo(&buf)
+	r := bytes.NewReader(buf.Bytes())
 
-	source, err := venti.SourceReader(ctx, br, e).ReadSource()
+	off := int64(de.Entry) * venti.EntrySize
+	if _, err := r.Seek(off, io.SeekStart); err != nil {
+		return nil, err
+	}
+	e, err := venti.ReadEntry(r)
 	if err != nil {
-		return nil, fmt.Errorf("read file source: %v", err)
+		return nil, err
 	}
 
 	ff := File{
 		meta:   de,
-		source: source,
+		source: e,
 	}
 
 	if e.IsDir() {
 		off := int64(de.Mentry) * venti.EntrySize
-		if _, err := f.source.Seek(off, io.SeekStart); err != nil {
+		if _, err := r.Seek(off, io.SeekStart); err != nil {
 			return nil, err
 		}
-		ee, err := venti.ReadEntry(f.source)
+		ee, err := venti.ReadEntry(r)
 		if err != nil {
 			return nil, err
 		}
-		msource, err := venti.SourceReader(ctx, br, ee).ReadSource()
-		if err != nil {
-			return nil, fmt.Errorf("read meta source: %v", err)
-		}
-		ff.msource = msource
+		ff.msource = ee
 	}
 
 	return &ff, nil
 }
 
-func (f *File) DirLookup(elem string) (*DirEntry, error) {
+// TODO: shouldn't need to pass in br
+func (f *File) DirLookup(ctx context.Context, br venti.BlockReader, elem string) (*DirEntry, error) {
+	r := venti.NewReader(ctx, br, f.msource)
+	buf := make([]byte, f.msource.Dsize)
 	for {
-		mb, err := ReadMetaBlock(f.msource)
+		_, err := io.ReadFull(r, buf)
+		if err != nil {
+			return nil, err
+		}
+		mb, err := UnpackMetaBlock(buf)
 		if err == io.EOF {
 			return nil, EntryNotFound
 		} else if err != nil {
 			return nil, err
 		}
-		me, err := mb.search(elem)
-		if err == EntryNotFound {
-			continue
-		}
+		found, _, me, err := mb.Search(elem)
 		if err != nil {
 			return nil, err
 		}
-		return me.unpackDirEntry()
+		if !found {
+			continue
+		}
+
+		return mb.unpackDirEntry(me)
 	}
 }
 
@@ -151,6 +114,6 @@ func (f *File) IsDir() bool {
 	return f.meta.Mode&ModeDir != 0
 }
 
-func (f *File) Reader() *venti.Source {
-	return f.source
+func (f *File) Reader(ctx context.Context, br venti.BlockReader) *venti.SourceReader {
+	return venti.NewReader(ctx, br, f.source)
 }

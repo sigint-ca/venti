@@ -14,7 +14,7 @@ func TestSourceIO(t *testing.T) {
 		t.Fatalf("dial venti: %v", err)
 	}
 
-	w := SourceWriter(ctx, client, DataType, 3*ScoreSize, 20)
+	w := NewWriter(ctx, client, DataType, 3*ScoreSize, 20)
 
 	type test struct {
 		s     []byte
@@ -40,11 +40,11 @@ func TestSourceIO(t *testing.T) {
 		}
 		t.Logf("flush returned entry with depth=%d", e.Depth())
 
-		s, err := SourceReader(ctx, client, e).ReadSource()
-		if err != nil {
+		var w bytes.Buffer
+		if _, err := NewReader(ctx, client, e).WriteTo(&w); err != nil {
 			t.Fatal(err)
 		}
-		buf := s.Bytes()
+		buf := w.Bytes()
 		t.Logf("read source: %q", buf)
 		if !bytes.Equal(buf, test.s) {
 			t.Errorf("read: got %q, want %q", buf, test.s)

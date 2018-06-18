@@ -44,6 +44,21 @@ type Client struct {
 	rpc *rpc.Client
 }
 
+// TODO: block caching br/bw implementation
+
+type BlockReader interface {
+	// ReadBlock reads the block with the given score and type into buf,
+	// whose length determines the maximum size of the block, and returns
+	// the number of bytes read.
+	ReadBlock(ctx context.Context, s Score, t BlockType, buf []byte) (int, error)
+}
+
+type BlockWriter interface {
+	// WriteBlock writes the contents of buf as a block of the given
+	// type, returning the score.
+	WriteBlock(ctx context.Context, t BlockType, buf []byte) (Score, error)
+}
+
 func Dial(ctx context.Context, address string) (*Client, error) {
 	var d net.Dialer
 	rwc, err := d.DialContext(ctx, "tcp", address)
