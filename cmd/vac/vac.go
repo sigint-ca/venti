@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	venti "sigint.ca/venti2"
@@ -82,7 +83,7 @@ func vacPaths(ctx context.Context, bw venti.BlockWriter, paths []string) (venti.
 
 		var vf *vac.File
 		if fi.IsDir() {
-			vf, err = vacDir(ctx, bw, f, fi)
+			vf, err = vacDir(ctx, bw, path, f, fi)
 		} else {
 			meta := vac.FileInfoDirEntry(fi)
 			vf, err = vac.NewFile(ctx, bw, f, meta, bsize)
@@ -104,17 +105,19 @@ func vacPaths(ctx context.Context, bw venti.BlockWriter, paths []string) (venti.
 	return vac.WriteRoot(ctx, bw, vf)
 }
 
-func vacDir(ctx context.Context, bw venti.BlockWriter, dir *os.File, fi os.FileInfo) (*vac.File, error) {
+func vacDir(ctx context.Context, bw venti.BlockWriter, path string, dir *os.File, fi os.FileInfo) (*vac.File, error) {
 	w := vac.NewDirWriter(ctx, bw, bsize)
 	for {
-		names, err := dir.Readdirnames(1)
+		base, err := dir.Readdirnames(1)
 		if err == io.EOF {
 			break
 		}
+		path := filepath.Join(path, base[0])
+
 		if err != nil {
 			return nil, err
 		}
-		f, err := os.Open(names[0])
+		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
@@ -123,11 +126,11 @@ func vacDir(ctx context.Context, bw venti.BlockWriter, dir *os.File, fi os.FileI
 			return nil, err
 		}
 
-		vprintf("%s\n", names[0])
+		vprintf("%s\n", path)
 
 		var vf *vac.File
 		if fi.IsDir() {
-			vf, err = vacDir(ctx, bw, f, fi)
+			vf, err = vacDir(ctx, bw, path, f, fi)
 		} else {
 			meta := vac.FileInfoDirEntry(fi)
 			vf, err = vac.NewFile(ctx, bw, f, meta, bsize)
