@@ -257,7 +257,6 @@ func (ds *DirScanner) next() (*DirEntry, error) {
 		}
 
 		memset(ds.mbuf[n:], 0)
-		ds.mbuf = ds.mbuf
 		mb, err := UnpackMetaBlock(ds.mbuf)
 		if err != nil {
 			return nil, fmt.Errorf("unpack meta block: %v", err)
