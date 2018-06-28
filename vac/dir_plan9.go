@@ -10,7 +10,6 @@ func FileInfoDirEntry(fi os.FileInfo) *DirEntry {
 	sys := fi.Sys().(*syscall.Dir)
 
 	var de DirEntry
-
 	de.Elem = fi.Name()
 	de.Size = fi.Size()
 	de.Uid = sys.Uid
