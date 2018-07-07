@@ -1,21 +1,23 @@
-package rpc
+package ventirpc
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
 )
 
-func encode(msg interface{}, funcId, tag uint8) ([]byte, error) {
-	var buf bytes.Buffer
+type encoder struct {
+	w *bufio.Writer
+}
 
+func (e *encoder) encode(msg interface{}, funcId, tag uint8) error {
 	// reserved for final length
-	buf.Write([]byte{0, 0})
+	e.w.Write([]byte{0, 0})
 
-	buf.WriteByte(funcId)
-	buf.WriteByte(tag)
+	e.w.WriteByte(funcId)
+	e.w.WriteByte(tag)
 
 	structValue := reflect.ValueOf(msg)
 	var err error
@@ -23,21 +25,21 @@ func encode(msg interface{}, funcId, tag uint8) ([]byte, error) {
 		f := structValue.Field(i)
 		switch v := f.Interface().(type) {
 		case uint8, uint16, uint32, uint64:
-			err = binary.Write(&buf, binary.BigEndian, v)
+			err = binary.Write(e.w, binary.BigEndian, v)
 		case string:
-			err = writeString(&buf, v)
+			err = writeString(e.w, v)
 		case []byte:
 			if structValue.Type().Field(i).Tag.Get("rpc") == "small" {
-				err = writeSmall(&buf, v)
+				err = writeSmall(e.w, v)
 			} else if i != structValue.NumField()-1 {
 				panic("unxepected []byte field")
 			} else {
-				_, err = buf.Write(v)
+				_, err = e.w.Write(v)
 			}
 		default:
 			if f.Kind() == reflect.Array && f.Type().Elem().Kind() == reflect.Uint8 {
 				for i := 0; i < f.Len(); i++ {
-					buf.WriteByte(f.Index(i).Interface().(uint8))
+					e.w.WriteByte(f.Index(i).Interface().(uint8))
 				}
 			} else {
 				err = fmt.Errorf("cannot decode %T", v)
@@ -48,18 +50,19 @@ func encode(msg interface{}, funcId, tag uint8) ([]byte, error) {
 		}
 	}
 
-	// final length minus two bytes reserved for length
-	// at the beginning of the buffer
-	length := uint16(buf.Len() - 2)
-
-	encoded := buf.Bytes()
+	// TODO: need to calculate length at the beginning...
+	length := uint16(e.w.Buffered() - 2)
+	encoded := e.w.Bytes()
 	binary.BigEndian.PutUint16(encoded, length)
 
-	return encoded, nil
+	return e.w.Flush()
 }
 
-func decode(dst interface{}, buf []byte) error {
-	r := bytes.NewReader(buf)
+type decoder struct {
+	r *bufio.Reader
+}
+
+func (d *decoder) decode(dst interface{}) error {
 	var err error
 	structValue := reflect.ValueOf(dst).Elem()
 	for i := 0; i < structValue.NumField(); i++ {
@@ -69,31 +72,31 @@ func decode(dst interface{}, buf []byte) error {
 		// case, or vv will not have the correct type.
 		// See https://golang.org/ref/spec#Type_switches.
 		case uint8:
-			err = binary.Read(r, binary.BigEndian, &v)
+			err = binary.Read(d.r, binary.BigEndian, &v)
 			f.Set(reflect.ValueOf(v))
 		case uint16:
-			err = binary.Read(r, binary.BigEndian, &v)
+			err = binary.Read(d.r, binary.BigEndian, &v)
 			f.Set(reflect.ValueOf(v))
 		case uint32:
-			err = binary.Read(r, binary.BigEndian, &v)
+			err = binary.Read(d.r, binary.BigEndian, &v)
 			f.Set(reflect.ValueOf(v))
 		case uint64:
-			err = binary.Read(r, binary.BigEndian, &v)
+			err = binary.Read(d.r, binary.BigEndian, &v)
 			f.Set(reflect.ValueOf(v))
 		case string:
 			var s string
-			s, err = readString(r)
+			s, err = readString(d.r)
 			f.SetString(s)
 		case []byte:
 			if structValue.Type().Field(i).Tag.Get("rpc") == "small" {
 				var s []byte
-				s, err = readSmall(r)
+				s, err = readSmall(d.r)
 				f.SetBytes(s)
 			} else if i != structValue.NumField()-1 {
 				panic("unxepected []byte field")
 			} else {
-				length := r.Len()
-				n, _ := r.Read(v)
+				length := d.r.Len()
+				n, _ := d.r.Read(v)
 
 				// kinda hacky: we communicate the read length back to
 				// the venti.Client using the slice length.
@@ -105,11 +108,11 @@ func decode(dst interface{}, buf []byte) error {
 			}
 		default:
 			if f.Kind() == reflect.Array && f.Type().Elem().Kind() == reflect.Uint8 {
-				if f.Len() > r.Len() {
+				if f.Len() > d.r.Len() {
 					err = errors.New("short buffer")
 				}
 				for i := 0; i < f.Len(); i++ {
-					c, _ := r.ReadByte()
+					c, _ := d.r.ReadByte()
 					f.Index(i).Set(reflect.ValueOf(c))
 				}
 			} else {

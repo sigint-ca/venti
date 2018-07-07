@@ -1,31 +1,28 @@
-package rpc_test
+package rpc
 
 import (
+	"fmt"
 	"testing"
 )
 
-func TestServeConn(t *testing.T) {
-	// cliConn, srvConn := net.Pipe()
+func TestRPCServer(t *testing.T) {
+	type In struct {
+		Foo int
+	}
+	type Out struct {
+		Bar int
+	}
+	funcs := map[int]interface{}{
+		1: func(req In, res *Out) error {
+			fmt.Println("test")
+			return nil
+		},
+	}
+	s := NewServer(funcs)
 
-	// srv := rpc.NewServer()
-	// srv.Register(1, TestRPC{})
-	// go func() {
-	// 	if err := srv.ServeConn(srvConn); err != nil {
-	// 		t.Fatal(err)
-	// 	}
-	// }()
+	req, res := s.getRpcFuncInputs(1)
+	fmt.Printf("req=%T res=%T\n", req, res)
 
-	// cli := rpc.NewClient(cliConn)
-
-	// req := TestReq{Foo: 1}
-	// var resp TestResp
-	// cli.Call(1, req, &resp)
-}
-
-type TestRPC struct {
-}
-
-func (t *TestRPC) Inc(arg int, ret *int) error {
-	*ret = arg + 1
-	return nil
+	f := s.getRpcFunc(1)
+	fmt.Printf("f=%T\n", f)
 }

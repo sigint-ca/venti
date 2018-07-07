@@ -134,8 +134,8 @@ type helloRequest struct {
 	Version  string
 	Uid      string
 	Strength uint8
-	Crypto   string "short"
-	Codec    string "short"
+	Crypto   []byte `rpc:"small"`
+	Codec    []byte `rpc:"small"`
 }
 
 type helloResponse struct {

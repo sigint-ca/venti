@@ -8,7 +8,7 @@ import (
 type TestMessage struct {
 	Int   uint16
 	Str   string
-	Short string "short"
+	Small []byte `rpc:"small"`
 	Arr   [5]byte
 	Buf   []byte
 }
@@ -17,7 +17,7 @@ func TestCodec(t *testing.T) {
 	in := TestMessage{
 		Int:   0xabcd,
 		Str:   "foobar",
-		Short: "test",
+		Small: []byte("test"),
 		Arr:   [5]byte{1, 2, 3, 4, 5},
 		Buf:   []byte{1, 2, 3, 4, 5, 6, 7, 8},
 	}

@@ -1,4 +1,4 @@
-package rpc
+package ventirpc
 
 import (
 	"encoding/binary"
